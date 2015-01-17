@@ -6,7 +6,7 @@
 //  Notes   : Code for using a CD4021B Shift Register            
 //          : This works, identifies each pin correctly
 //          : and would be OK with 4 shift regs but is waste-
-//          : ful leaving 4 pins of each sr unused
+//          : ful leaving 4 pins of each shift reg unused
 
 //Currently connected for hours only, press button to set to PM
 //****************************************************************
