@@ -1,97 +1,116 @@
-//****************************************************************
+///////////////////////////////////////////////////////////////////////////////////
 //  Name    : alarmClock                               
-//  Author  : A.S. (from Carlyn Maw)                                        
+//  Author  : Andy Stopford                                        
 //  Date    : 2 Jan, 2015                                      
 //  Version : 1.0                                               
-//  Notes   : Code for using a CD4021B Shift Register
-//          :trying to use just 3 SRs            
+//  Notes   : Using four CD4021B Shift Registers
+//          : Date and time using a DS3232 RTC connected via I2C and Wire lib
+//          :     
+//          : ShiftIn from Carlyn Maw, http://www.arduino.cc/en/Tutorial/ShiftIn
+///////////////////////////////////////////////////////////////////////////////////
 
-//****************************************************************
+#include <DS3232RTC.h>        //http://github.com/JChristensen/DS3232RTC
+#include <Streaming.h>        //http://arduiniana.org/libraries/streaming/
+#include <Time.h>             //http://playground.arduino.cc/Code/Time
+#include <Wire.h>             //http://arduino.cc/en/Reference/Wire
+#include <LiquidCrystal_I2C.h>
 
-// Date and time functions using a DS1307 RTC connected via I2C and Wire lib
-#include <Wire.h>
-#include "RTClib.h"
-
-//define where your pins are
+//define pins 
 const int switch_PM = 5;
 const int switch_BST = 6;
-const int clockPin = 7;
-const int latchPin = 8;
-const int dataPin = 9;
-int testA = 0;
-int testB = 0;
+const int clockPin = 10;
+const int latchPin = 11;
+const int dataPin = 12;
 
 //variables to hold shift register data
-byte alarmVar1 = 256;  //100000000
-byte alarmVar2 = 159; //10011111
-
+byte alarmVar1;
+byte alarmVar2;
+byte alarmVar3;
+byte alarmVar4;
 
 //define arrays that corresponds to values for each 
 //of the shift register's pins
-
-int arrayHrs[] =  
-{9, 10 , 11, 12};
-
-int arrayMins[] =
-{0, 5, 10, 15};
-
-int arrayLen[] =
-{0, 1, 2, 3, 4, 5, 6, 7};
+int hrs_array1[] = {
+  4, 3, 2, 1, 5, 6, '@', '@'}; 
+int hrs_array2[] = {
+  10, 9, 8, 7, 11, 12, '@', '@'};  //@ char returns int 64
+int mins_array1[] = {
+  20, 15, 10, 5, 25, 30, '@', '@'}; 
+int mins_array2[] = {
+  50, 45, 40, 35, 55, 0, '@', '@'};
 
 //Initialize time values
-int hourSet = 0;
-int minSet = 0;
 int time_hour;
+int time_mins;    
+int hourSet;
+int minSet;
+int hrsToGo;
+int minsToGo; 
+int currTime;
+int alarmTime;
+int timeToGo;
+int alarmOn;  //Variable to store alarm switch position on/off
+int alarmSnooze;  //Variable to store alarm switch position snooze/off 
+int flag_GMT;
+int flag_AM;
 
-int index = 0;
 
+// set the LCD address to 0x27 for a 20 chars 4 line display
+// Set the pins on the I2C chip used for LCD connections:
+//                    addr, en,rw,rs,d4,d5,d6,d7,bl,blpol
+LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
-RTC_DS1307 rtc;
-
-int alarmTime = 30;
-
-////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
 void setup () 
 {
-  Serial.begin(9600);
+  Serial.begin(9600); //For debugging
   Wire.begin();
-  rtc.begin();
+    
+  //setSyncProvider() causes the Time library to synchronize with the
+  //external RTC by calling RTC.get() every five minutes by default.
+  //It'll just give 1 Jan 1970 if this is omitted
+  setSyncProvider(RTC.get);
+  Serial << F("RTC Sync");
+  if (timeStatus() != timeSet) Serial << F(" FAIL!");
+  Serial << endl;
 
-    //define pin modes
+  //define pin modes
   pinMode(switch_PM, INPUT);
   pinMode(switch_BST, INPUT);
   pinMode(clockPin, OUTPUT); 
   pinMode(latchPin, OUTPUT);
   pinMode(dataPin, INPUT);
 
-  
+  lcd.begin(20,4);   // initialize the lcd for 20 chars 4 lines, turn on backlight
 
-  if (! rtc.isrunning()) 
-  {
-    Serial.println("RTC is NOT running!");
-    rtc.adjust(DateTime(__DATE__, __TIME__));
-  }
 }
 
-////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
 void loop () 
 {
-  DateTime now = rtc.now(); 
-  Serial.print(now.year(), DEC);
-  Serial.print('/');
-  Serial.print(now.month(), DEC);
-  Serial.print('/');
-  Serial.print(now.day(), DEC);
-  Serial.print(' ');
-  Serial.print(now.hour(), DEC);
-  Serial.print(':');
-  Serial.print(now.minute(), DEC);
-  Serial.print(':');
-  Serial.print(now.second(), DEC);
-  Serial.println();
+  alarmOn = digitalRead(2);
+  alarmSnooze = digitalRead(3);
+  flag_GMT = digitalRead(4);
+  flag_AM = digitalRead(5);
 
-  time_hour = (now.hour());
 
+  //Read RTC----------------------------------------------------
+  static time_t tLast;
+  time_t t;
+  t = now();
+  time_hour = hour(t);
+  time_mins = minute(t);
+
+
+  //GMT/BST------------------------------------------------------
+  if (flag_GMT == LOW)  //i.e. it is BST
+    {
+      time_hour = time_hour + 1;
+    }
+
+
+  //Read Shift Registers-----------------------------------------
   digitalWrite(latchPin,1);
   delayMicroseconds(20);
   digitalWrite(latchPin,0);
@@ -101,36 +120,163 @@ void loop ()
   //the register attached to the chip comes in first 
   alarmVar1 = shiftIn(dataPin, clockPin);
   alarmVar2 = shiftIn(dataPin, clockPin);
+  alarmVar3 = shiftIn(dataPin, clockPin);
+  alarmVar4 = shiftIn(dataPin, clockPin);
 
-  Serial.println (alarmVar1, BIN);
-
-  switch (alarmVar1)
+  //Match bytes to array locations
+  for (int n=0; n<=7; n++)
   {
-    case B00000001:
-    Serial.println ("A");
-    break;
-    case B10000001:
-    Serial.println ("B");
+    if (alarmVar1 & (1 << n) )    
+      {
+      hourSet = hrs_array1[n];   
+      }
+
+    if (alarmVar2 & (1 << n) )
+      {
+      hourSet = hrs_array2[n];
+      }
+
+    if (alarmVar3 & (1 << n) )
+      {
+      minSet = mins_array1[n];
+      }
+
+    if (alarmVar4 & (1 << n) )
+      {
+      minSet = mins_array2[n];
+      }
   }
 
-  //white space
-  Serial.println("-------------------");
-  //delay so all these print satements can keep up. 
-  delay(2000);
+
+  //Morning or afternoon alarm------------------------------------
+  if (flag_AM == LOW) //i.e. we want to set to PM
+  {
+    hourSet = hourSet + 12;
+  }
+
+
+  //Calculate time to go before alarm-----------------------------
+  currTime = (time_hour * 60) + time_mins;  //convert times into minutes
+  alarmTime = (hourSet * 60) + minSet;
+
+  if (alarmTime > currTime)
+    {
+      timeToGo = alarmTime -currTime;
+    }
+  else
+    {
+      timeToGo = (1440 - currTime) + alarmTime; //go forward to next day
+    }
+
+  minsToGo = timeToGo % 60;
+  hrsToGo = timeToGo / 60;
+
+
+  //Alarm-----------------------------------------------------------
+  if (hour(t) == hourSet)
+    { 
+      //Modify this to limiting number of mins for alarm to sound   
+      if (minute(t) - minSet >= 0)
+      {
+        Serial.println("Alarm");
+      }
+    }
+
+
+  //Print fixed text-----------------------------------------------
+  lcd.setCursor(6, 0);
+  if (flag_GMT == HIGH)
+    {
+      lcd.print("GMT");
+    }
+  else
+    {
+      lcd.print("BST");
+    }
+
+  lcd.setCursor(0, 3);
+  lcd.print("Time To Go");
+
+  lcd.setCursor(0, 2);
+  lcd.print("Alarm Set For");
+
+
+  //Print current time and date------------------------------------
+  lcd.setCursor(0, 0);
+  if (time_hour < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(time_hour);
+  lcd.print(":");
+  if (minute(t) < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(minute(t));
+
+  lcd.setCursor(10, 0);
+    if (day(t) < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(day(t));
+  lcd.print(":");
+    if (month(t) < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(month(t));
+  lcd.print(":");
+  lcd.print(year(t));
+
+
+  //Print alarm set time---------------------------------------
+  lcd.setCursor(15, 2);
+  if (hourSet < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(hourSet);
+  lcd.print(":");
+  if (minSet < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(minSet);
+
+
+  //Print time-to-go--------------------------------------------
+  lcd.setCursor(15, 3);
+  if (hrsToGo < 10)
+    {
+      lcd.print(" ");
+    }
+  
+  lcd.print(hrsToGo);
+  lcd.print(":");
+  if (minsToGo < 10)
+    {
+      lcd.print(0);
+    }
+  lcd.print(minsToGo);
+
+  delay(2000);  
 }
 
-  /////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
 
 //shiftIn function just needs the location of the data pin and 
 //the clock pin it returns a byte with each bit in the byte corresponding
 //to a pin on the shift register. leftBit 7 = Pin 7 / Bit 0= Pin 0
 
 byte shiftIn(int myDataPin, int myClockPin) 
-  {
+{ 
   int i;
   int temp = 0;
   int pinState;
-  byte myDataIn = 0;
+  int myDataIn = 0;
+  int switchState = 0;
 
   pinMode(myClockPin, OUTPUT);
   pinMode(myDataPin, INPUT);
@@ -149,9 +295,24 @@ byte shiftIn(int myDataPin, int myClockPin)
     temp = digitalRead(myDataPin);
     if (temp) 
     {
-      pinState = 1;
-      //set the bit to 0 no matter what
-      myDataIn = myDataIn | (1 << i);
+      if (switchState == 0)    
+        {
+        pinState = 1;
+        //set the bit to 0 no matter what
+        myDataIn = myDataIn | (1 << i);
+        //Serial.println("State 0 =");
+        //Serial.println(myDataIn, BIN);
+        switchState = 1;
+        }
+      else
+        {
+        pinState = 1;
+        //set the bit to 0 no matter what
+        myDataIn = myDataIn | (1 << i);
+        //Serial.println("State 1 =");
+        //Serial.println(myDataIn, BIN);
+        switchState = 0;
+        }
     }
     else 
     {
@@ -159,15 +320,9 @@ byte shiftIn(int myDataPin, int myClockPin)
      //print statement since myDataIn starts as 0
       pinState = 0;
     }
-    digitalWrite(myClockPin, 1);
+    digitalWrite(myClockPin, 1);    
   }
-  //debuging print statements whitespace
-  //Serial.println();
-  //Serial.println(myDataIn, BIN);
   return myDataIn;
 }
 
 ////////////////////////////////////
-/*To Do:
-send both switchStates to loop
-*/
