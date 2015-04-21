@@ -14,13 +14,17 @@
 #include <Time.h>             //http://playground.arduino.cc/Code/Time
 #include <Wire.h>             //http://arduino.cc/en/Reference/Wire
 #include <LiquidCrystal_I2C.h>
+#include <BiColorLED.h>
 
 //define pins 
-const int switch_PM = 5;
-const int switch_BST = 6;
-const int clockPin = 10;
-const int latchPin = 11;
-const int dataPin = 12;
+//const int switch_PM = 5;  
+//const int switch_BST = 6;
+//const int switch_alarm = 2;
+//const int switch_snooze = 8;
+const int clockPin = 9;
+const int latchPin = 10;
+const int dataPin = 11;
+BiColorLED led = BiColorLED(6, 7);
 
 //variables to hold shift register data
 byte alarmVar1;
@@ -31,13 +35,13 @@ byte alarmVar4;
 //define arrays that corresponds to values for each 
 //of the shift register's pins
 int hrs_array1[] = {
-  4, 3, 2, 1, 5, 6, '@', '@'}; 
+  1, 2, 3, 4, 5, 6, '@', '@'}; 
 int hrs_array2[] = {
-  10, 9, 8, 7, 11, 12, '@', '@'};  //@ char returns int 64
+  7, 8, 9, 10, 11, 12, '@', '@'};  //@ char returns int 64
 int mins_array1[] = {
-  20, 15, 10, 5, 25, 30, '@', '@'}; 
+  5, 10, 15, 20, 25, 30, '@', '@'}; 
 int mins_array2[] = {
-  50, 45, 40, 35, 55, 0, '@', '@'};
+  35, 40, 45, 50, 55, 0, '@', '@'};
 
 //Initialize time values
 int time_hour;
@@ -76,8 +80,10 @@ void setup ()
   Serial << endl;
 
   //define pin modes
-  pinMode(switch_PM, INPUT);
-  pinMode(switch_BST, INPUT);
+  //pinMode(switch_PM, INPUT);
+  //pinMode(switch_BST, INPUT);
+  //pinMode(switch_alarm, INPUT);
+  //pinMode(switch_snooze, INPUT);
   pinMode(clockPin, OUTPUT); 
   pinMode(latchPin, OUTPUT);
   pinMode(dataPin, INPUT);
@@ -89,11 +95,11 @@ void setup ()
 ///////////////////////////////////////////////////////////////////////////////////
 void loop () 
 {
-  alarmOn = digitalRead(2);
+  alarmOn = digitalRead(2); 
   alarmSnooze = digitalRead(3);
   flag_GMT = digitalRead(4);
   flag_AM = digitalRead(5);
-
+  led.drive();
 
   //Read RTC----------------------------------------------------
   static time_t tLast;
@@ -107,6 +113,24 @@ void loop ()
   if (flag_GMT == LOW)  //i.e. it is BST
     {
       time_hour = time_hour + 1;
+    }
+
+
+  //Alarm status-------------------------------------------------
+  if (alarmOn == HIGH)
+    {
+      alarmStatus(2);   //Green
+    }
+  else
+    {
+      if (alarmSnooze == HIGH)
+        {
+          alarmStatus(3);   //Yellow - not working
+        }
+      else
+        {
+          alarmStatus(1);   //Red
+        }
     }
 
 
@@ -149,7 +173,7 @@ void loop ()
 
 
   //Morning or afternoon alarm------------------------------------
-  if (flag_AM == LOW) //i.e. we want to set to PM
+  if (flag_AM == HIGH) //i.e. we want to set to AM
   {
     hourSet = hourSet + 12;
   }
@@ -261,7 +285,7 @@ void loop ()
     }
   lcd.print(minsToGo);
 
-  delay(2000);  
+ // delay(1000);  
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -326,3 +350,8 @@ byte shiftIn(int myDataPin, int myClockPin)
 }
 
 ////////////////////////////////////
+
+void alarmStatus(int LEDcolour)
+{
+  led.setColor(LEDcolour);
+}
