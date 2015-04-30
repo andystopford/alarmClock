@@ -14,17 +14,12 @@
 #include <Time.h>             //http://playground.arduino.cc/Code/Time
 #include <Wire.h>             //http://arduino.cc/en/Reference/Wire
 #include <LiquidCrystal_I2C.h>
-#include <BiColorLED.h>
 
 //define pins 
-//const int switch_PM = 5;  
-//const int switch_BST = 6;
-//const int switch_alarm = 2;
-//const int switch_snooze = 8;
+
 const int clockPin = 9;
 const int latchPin = 10;
 const int dataPin = 11;
-BiColorLED led = BiColorLED(6, 7);
 
 //variables to hold shift register data
 byte alarmVar1;
@@ -58,6 +53,12 @@ int alarmSnooze;  //Variable to store alarm switch position snooze/off
 int flag_GMT;
 int flag_AM;
 
+int alarmState = LOW;
+int alarmSound = LOW;
+long previousMillis = 0;
+long interval = 1000;
+int snoozeTime = 1;   //Mins for snooze
+
 
 // set the LCD address to 0x27 for a 20 chars 4 line display
 // Set the pins on the I2C chip used for LCD connections:
@@ -66,6 +67,7 @@ LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
+
 void setup () 
 {
   Serial.begin(9600); //For debugging
@@ -79,35 +81,30 @@ void setup ()
   if (timeStatus() != timeSet) Serial << F(" FAIL!");
   Serial << endl;
 
-  //define pin modes
-  //pinMode(switch_PM, INPUT);
-  //pinMode(switch_BST, INPUT);
-  //pinMode(switch_alarm, INPUT);
-  //pinMode(switch_snooze, INPUT);
   pinMode(clockPin, OUTPUT); 
   pinMode(latchPin, OUTPUT);
   pinMode(dataPin, INPUT);
+  pinMode(6, OUTPUT);
+  pinMode(7, OUTPUT);
+  pinMode(12, OUTPUT); //speaker on pin 12
 
   lcd.begin(20,4);   // initialize the lcd for 20 chars 4 lines, turn on backlight
-
 }
-
 ///////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////
+
 void loop () 
 {
   alarmOn = digitalRead(2); 
   alarmSnooze = digitalRead(3);
   flag_GMT = digitalRead(4);
   flag_AM = digitalRead(5);
-  led.drive();
 
   //Read RTC----------------------------------------------------
-  static time_t tLast;
   time_t t;
   t = now();
   time_hour = hour(t);
   time_mins = minute(t);
-
 
   //GMT/BST------------------------------------------------------
   if (flag_GMT == LOW)  //i.e. it is BST
@@ -117,20 +114,22 @@ void loop ()
 
 
   //Alarm status-------------------------------------------------
+  
   if (alarmOn == HIGH)
     {
-      alarmStatus(2);   //Green
+      digitalWrite(6, HIGH);   
+      digitalWrite(7, LOW);
     }
   else
     {
-      if (alarmSnooze == HIGH)
-        {
-          alarmStatus(3);   //Yellow - not working
-        }
-      else
-        {
-          alarmStatus(1);   //Red
-        }
+      digitalWrite(7, HIGH);
+      digitalWrite(6, LOW);
+    }
+
+  if (alarmSnooze == HIGH)
+    {
+      digitalWrite(6, HIGH);
+      digitalWrite(7, HIGH);
     }
 
 
@@ -173,7 +172,8 @@ void loop ()
 
 
   //Morning or afternoon alarm------------------------------------
-  if (flag_AM == HIGH) //i.e. we want to set to AM
+  //if (flag_AM == HIGH) //i.e. we want to set to AM
+  if (flag_AM == LOW) //For Testing
   {
     hourSet = hourSet + 12;
   }
@@ -182,28 +182,34 @@ void loop ()
   //Calculate time to go before alarm-----------------------------
   currTime = (time_hour * 60) + time_mins;  //convert times into minutes
   alarmTime = (hourSet * 60) + minSet;
+  timeToGo = alarmTime -currTime;
 
-  if (alarmTime > currTime)
+  if (alarmSnooze == HIGH)
     {
-      timeToGo = alarmTime -currTime;
+      timeToGo += snoozeTime;
     }
-  else
+  if (timeToGo < 0)
     {
       timeToGo = (1440 - currTime) + alarmTime; //go forward to next day
     }
 
-  minsToGo = timeToGo % 60;
+  minsToGo = timeToGo % 60;   //For LCD display
   hrsToGo = timeToGo / 60;
 
 
   //Alarm-----------------------------------------------------------
-  if (hour(t) == hourSet)
-    { 
-      //Modify this to limiting number of mins for alarm to sound   
-      if (minute(t) - minSet >= 0)
-      {
-        Serial.println("Alarm");
-      }
+  if (timeToGo == 0)
+    {  
+      if (alarmOn == HIGH || alarmSnooze == HIGH) 
+      //if (alarmOn == LOW) //For testing
+        {
+          alarmActuate();
+        }
+      else
+        {
+          alarmOff();
+        }
+       
     }
 
 
@@ -221,8 +227,23 @@ void loop ()
   lcd.setCursor(0, 3);
   lcd.print("Time To Go");
 
-  lcd.setCursor(0, 2);
-  lcd.print("Alarm Set For");
+  if (alarmOn == HIGH)
+    {
+      lcd.setCursor(0, 2);
+      lcd.print("Alarm Set For");
+    }
+  /*
+  if (alarmSnooze == HIGH)
+    {
+      lcd.setCursor(0, 2);
+      lcd.print("Alarm Snooze ");
+    }
+  */
+  else
+    {
+      lcd.setCursor(0, 2);
+      lcd.print("Alarm Not Set");
+    }
 
 
   //Print current time and date------------------------------------
@@ -285,7 +306,6 @@ void loop ()
     }
   lcd.print(minsToGo);
 
- // delay(1000);  
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -351,7 +371,62 @@ byte shiftIn(int myDataPin, int myClockPin)
 
 ////////////////////////////////////
 
-void alarmStatus(int LEDcolour)
-{
-  led.setColor(LEDcolour);
-}
+
+/////////////////////////////////////////////////////////////////
+
+
+void alarmActuate()
+  {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - previousMillis > interval)
+      {
+        previousMillis = currentMillis;
+        if (alarmSound == LOW)
+          {
+            alarmSound = HIGH;
+          }
+        else
+          {
+            alarmSound = LOW;
+          }
+        alarm(alarmSound);
+      }
+  }
+
+
+void alarm(int test)
+  {
+    //temp led 
+    digitalWrite(12, test);
+  }
+
+
+void alarmOff()
+  {
+    digitalWrite(12, LOW);
+  }
+
+
+
+/* 
+//Flashing light
+void alarmActuate(int snoozeOn)
+  {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - previousMillis > interval)
+      {
+        previousMillis = currentMillis;
+        if (alarmState == LOW)
+          {
+            alarmState = HIGH;
+          }
+        else
+          {
+            alarmState = LOW;
+          }
+        alarm(alarmState);
+      }
+  }
+  */
