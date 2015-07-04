@@ -57,7 +57,8 @@ int alarmState = LOW;
 int alarmSound = LOW;
 long previousMillis = 0;
 long interval = 1000;
-int snoozeTime = 1;   //Mins for snooze
+int snoozeTime = 15;   //Mins for snooze
+int melody[]= {1900,2000,2100,200,1900};
 
 
 // set the LCD address to 0x27 for a 20 chars 4 line display
@@ -99,6 +100,7 @@ void loop ()
   alarmSnooze = digitalRead(3);
   flag_GMT = digitalRead(4);
   flag_AM = digitalRead(5);
+  //lcd.setBacklight(0);  //Turn backlight off
 
   //Read RTC----------------------------------------------------
   time_t t;
@@ -172,8 +174,7 @@ void loop ()
 
 
   //Morning or afternoon alarm------------------------------------
-  //if (flag_AM == HIGH) //i.e. we want to set to AM
-  if (flag_AM == LOW) //For Testing
+  if (flag_AM == HIGH) //i.e. we want to set to AM
   {
     hourSet = hourSet + 12;
   }
@@ -201,17 +202,18 @@ void loop ()
   if (timeToGo == 0)
     {  
       if (alarmOn == HIGH || alarmSnooze == HIGH) 
-      //if (alarmOn == LOW) //For testing
         {
           alarmActuate();
-        }
+        } 
       else
         {
           alarmOff();
-        }
-       
+        }     
     }
-
+  else
+    {
+      alarmOff();
+    }
 
   //Print fixed text-----------------------------------------------
   lcd.setCursor(6, 0);
@@ -227,21 +229,18 @@ void loop ()
   lcd.setCursor(0, 3);
   lcd.print("Time To Go");
 
+
+  lcd.setCursor(0, 2);
   if (alarmOn == HIGH)
     {
-      lcd.setCursor(0, 2);
       lcd.print("Alarm Set For");
     }
-  /*
   if (alarmSnooze == HIGH)
     {
-      lcd.setCursor(0, 2);
-      lcd.print("Alarm Snooze ");
+      lcd.print("Alarm Snooze  ");
     }
-  */
-  else
+  if (alarmOn != HIGH && alarmSnooze != HIGH)
     {
-      lcd.setCursor(0, 2);
       lcd.print("Alarm Not Set");
     }
 
@@ -406,27 +405,3 @@ void alarmOff()
   {
     digitalWrite(12, LOW);
   }
-
-
-
-/* 
-//Flashing light
-void alarmActuate(int snoozeOn)
-  {
-    unsigned long currentMillis = millis();
-
-    if (currentMillis - previousMillis > interval)
-      {
-        previousMillis = currentMillis;
-        if (alarmState == LOW)
-          {
-            alarmState = HIGH;
-          }
-        else
-          {
-            alarmState = LOW;
-          }
-        alarm(alarmState);
-      }
-  }
-  */
